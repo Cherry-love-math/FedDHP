@@ -1,0 +1,210 @@
+--- a/clientkd2.py
++++ b/clientkd2.py
+@@ -1,12 +1,14 @@
+ import copy
+ import torch
+ import torch.nn as nn
+ import numpy as np
+ import torch.nn.functional as F
+ from flcore.clients.clientbase import Client
+-# clientkd.py 顶部
+ import os, pickle, torch, itertools
+ import time
++from torchvision import transforms
+ 
+ 
+ class clientKD(Client):
+     def __init__(self, args, id, train_samples, test_samples, **kwargs):
+         super().__init__(args, id, train_samples, test_samples, **kwargs)
+@@ -16,6 +18,10 @@
+ 
+         self.mentee_learning_rate = args.mentee_learning_rate
+ 
++        if not hasattr(self, "num_classes"):
++            self.num_classes = getattr(args, "num_classes", None)
++
+         self.model = copy.deepcopy(args.teacher_model).to(self.device)
+         self.global_model = copy.deepcopy(args.model).to(self.device)
+ 
+@@ -58,10 +64,28 @@
+ 
+         self.compressed_param = {}
+         self.energy = None
++
++        self.yoyo_tau = float(getattr(args, "yoyo_tau", 1.0))
++        self.yoyo_gamma = float(getattr(args, "yoyo_gamma", 0.5))
++        self.yoyo_prior_batches = int(getattr(args, "yoyo_prior_batches", 20))
++        self.asd_beta = float(getattr(args, "asd_beta", 1.0))
++        self.asd_gamma = float(getattr(args, "asd_gamma", 1.0))
++
++        if self.num_classes is None:
++            self.num_classes = int(getattr(args, "num_classes_fallback", 100))
++
++        prior_g = torch.ones(self.num_classes, dtype=torch.float32)
++        prior_g = prior_g / prior_g.sum()
++        self.prior_global = prior_g
++        self.prior_local = prior_g.clone()
++
++        self.strong_hflip = transforms.RandomHorizontalFlip(p=0.5)
++        self.strong_erase = transforms.RandomErasing(p=0.5, scale=(0.02, 0.33), ratio=(0.3, 3.3), value=0)
+         
+     def _obj_nbytes(self, obj):
+         if isinstance(obj, (list, tuple)) and len(obj) == 3:
+@@ -75,6 +99,50 @@
+         for v in d.values():
+             s += self._obj_nbytes(v)
+         return int(s)
+ 
++    def _strong_augment_batch(self, x):
++        if x.dim() != 4:
++            return x
++        xs = []
++        for i in range(x.size(0)):
++            xi = x[i]
++            xi = self.strong_hflip(xi)
++            xi = self.strong_erase(xi)
++            xs.append(xi)
++        return torch.stack(xs, dim=0)
++
++    def _estimate_local_prior(self, max_batches=20):
++        loader = self.load_train_data()
++        counts = torch.zeros(self.num_classes, dtype=torch.float64)
++        seen = 0
++        for _, y in itertools.islice(loader, max_batches):
++            y = y.detach().cpu().to(torch.int64).view(-1)
++            if y.numel() == 0:
++                continue
++            bc = torch.bincount(y, minlength=self.num_classes).to(torch.float64)
++            counts += bc
++            seen += int(y.numel())
++        if seen <= 0 or float(counts.sum()) <= 0.0:
++            p = torch.ones(self.num_classes, dtype=torch.float32)
++            return p / p.sum()
++        p = (counts / counts.sum()).to(torch.float32)
++        p = torch.clamp(p, min=1e-6)
++        p = p / p.sum()
++        return p
++
++    def _get_mixed_prior(self):
++        pg = self.prior_global
++        pl = self.prior_local if self.prior_local is not None else pg
++        p = (1.0 - self.yoyo_gamma) * pg + self.yoyo_gamma * pl
++        p = torch.clamp(p, min=1e-6)
++        p = p / p.sum()
++        return p
++
+     def train(self):
+-        trainloader = self.load_train_data()
+-        # self.model.to(self.device)
++        self.prior_local = self._estimate_local_prior(self.yoyo_prior_batches)
++        trainloader = self.load_train_data()
+         self.model.train()
+         self.global_model.train()
+ 
+         start_time = time.time()
+@@ -100,45 +168,67 @@
+                 else:
+                     x = x.to(self.device)
+                 y = y.to(self.device)
+                 if self.train_slow:
+                     time.sleep(0.1 * np.abs(np.random.rand()))
+-                rep = self.model.base(x)
+-                rep_g = self.global_model.base(x)
+-                output = self.model.head(rep)
+-                output_g = self.global_model.head(rep_g)
+-
+-                CE_loss = self.loss(output, y)
+-                CE_loss_g = self.loss(output_g, y)
+-                den = (CE_loss.detach() + CE_loss_g.detach() + 1e-12)
+-                L_d = self.KL(
+-                    F.log_softmax(output, dim=1),
+-                    F.softmax(output_g.detach(), dim=1)
+-                ) / den
+-
+-                L_d_g = self.KL(
+-                    F.log_softmax(output_g, dim=1),
+-                    F.softmax(output.detach(), dim=1)
+-                ) / den
+-
+-                L_h = self.MSE(
+-                    rep,
+-                    self.W_h(rep_g.detach())
+-                ) / den
+-
+-                L_h_g = self.MSE(
+-                    rep.detach(),
+-                    self.W_h(rep_g)
+-                ) / den
+-
+-                loss = CE_loss + L_d + L_h
+-                loss_g = CE_loss_g + L_d_g + L_h_g
++
++                x_weak = x
++                x_strong = self._strong_augment_batch(x.clone())
++
++                rep = self.model.base(x_weak)
++                output = self.model.head(rep)
++
++                rep_g = self.global_model.base(x_strong)
++                output_g = self.global_model.head(rep_g)
++
++                CE_loss = self.loss(output, y)
++
++                prior = self._get_mixed_prior().to(self.device)
++                adj = self.yoyo_tau * torch.log(prior + 1e-9)
++                output_g_adj = output_g + adj.view(1, -1)
++                CE_loss_g = self.loss(output_g_adj, y)
++
++                den = (CE_loss.detach() + CE_loss_g.detach() + 1e-12)
++
++                with torch.no_grad():
++                    mask = (torch.argmax(output, dim=1) == y)
++
++                if torch.any(mask):
++                    out_s = output_g[mask]
++                    out_t = output[mask].detach()
++                    distill_loss = self.KL(
++                        F.log_softmax(out_s, dim=1),
++                        F.softmax(out_t, dim=1)
++                    ) / den
++
++                    rep_s = rep_g[mask]
++                    rep_t = rep[mask].detach()
++                    feature_loss = self.MSE(
++                        self.W_h(rep_s),
++                        rep_t
++                    ) / den
++                else:
++                    distill_loss = output_g.sum() * 0.0
++                    feature_loss = output_g.sum() * 0.0
++
++                loss_mentor = CE_loss
++                loss_student = CE_loss_g + self.asd_beta * distill_loss + self.asd_gamma * feature_loss
+ 
+ 
+                 self.optimizer.zero_grad()
+                 self.optimizer_g.zero_grad()
+                 self.optimizer_W.zero_grad()
+-                loss.backward(retain_graph=True)
+-                loss_g.backward()
++                loss_mentor.backward(retain_graph=True)
++                loss_student.backward()
+                 # prevent divergency on specifical tasks
+                 torch.nn.utils.clip_grad_norm_(self.model.parameters(), 10)
+                 torch.nn.utils.clip_grad_norm_(self.global_model.parameters(), 10)
+                 torch.nn.utils.clip_grad_norm_(self.W_h.parameters(), 10)
+                 self.optimizer.step()
+                 self.optimizer_g.step()
+                 self.optimizer_W.step()
+ 
+         # self.model.cpu()
+ 
+         self.decomposition()
+ 
+         if self.learning_rate_decay:
+             self.learning_rate_scheduler.step()
+             self.learning_rate_scheduler_g.step()
+             self.learning_rate_scheduler_W.step()
+ 
+         self.train_time_cost['num_rounds'] += 1
+         self.train_time_cost['total_cost'] += time.time() - start_time

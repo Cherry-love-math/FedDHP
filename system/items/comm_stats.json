@@ -1,0 +1,8 @@
+{
+  "total_uplink_bytes": 118209346080,
+  "total_downlink_bytes": 118209346080,
+  "total_bytes": 236418692160,
+  "total_client_rounds": 6020,
+  "avg_bytes_per_client_round": 39272208.0,
+  "avg_bytes_per_client": 11820934608.0
+}
