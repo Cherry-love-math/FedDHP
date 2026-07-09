@@ -1,8 +1,0 @@
-{
-  "args": {
-    "goal": "test",
-    "device": "cuda",
-    "device_id": "0",
-    "dataset": "Cifar10_noniid_a0.3_wg2",
-    "num_classes": 10,
-    "model": 

@@ -242,7 +242,7 @@ python main.py \
   --cifar_cutout_p 0.5 \
   -go aug_crop_hflip_cutout
 ```
-````markdown
+
 ### Augmentation Options
 
 FedDHP uses asymmetric views for the two branches: the personalized teacher branch receives a stable view, while the generic student branch can receive a perturbed view. This design follows the role assignment in the paper, where stable views preserve local supervision and perturbed views encourage the generic branch to learn more transferable representations.
@@ -256,6 +256,19 @@ crop_hflip
 crop_hflip_cutout
 crop_hflip_randaug
 hflip_colorjitter
+```
+
+The strong-augmentation script uses:
+
+```bash
+--student_aug crop_hflip_cutout \
+--cifar_crop_padding 4 \
+--cifar_cutout_p 0.5
+```
+
+The augmentation sensitivity analysis in the paper examines different teacher/student view assignments, including weak, strong, reversed, and same-strong settings. The purpose is to verify the role of asymmetric-view assignment rather than to search for the strongest augmentation recipe.
+
+---
 
 ## 8. Ablation Example
 
