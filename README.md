@@ -85,6 +85,8 @@ FedDHP/
 ├── scripts/
 │   ├── prepare_data.sh
 │   ├── run_feddhp_cifar10.sh
+│   ├── run_baseline_example.sh
+│   ├── run_feddhp_ablation.sh
 │   └── run_feddhp_strong_aug.sh
 └── configs/
     └── paper_settings.md
@@ -131,58 +133,48 @@ This step is not always required. Use it only when your environment reports rela
 
 ## 5. Dataset Preparation
 
-Raw datasets and generated client partitions are **not included** in this repository due to file size limitations.
+Raw datasets and generated client partitions are not included in this repository due to file size limitations. The raw datasets are publicly available from their original sources. 
 
-Please generate federated datasets locally.
+This release provides dataset generation scripts for the datasets used in the FedDHP paper:
+
+- CIFAR-10
+- CIFAR-100
+- Fashion-MNIST / FMNIST
+- Kvasir-v2
+
+To generate the main datasets, run:
+
+```bash
+bash scripts/prepare_data.sh
+```
+
+You can also manually generate a specific dataset:
 
 ```bash
 cd dataset
-```
 
-### CIFAR-10
-
-```bash
 python generate_Cifar10.py noniid - dir Cifar10_noniid_a0.1
 python generate_Cifar10.py noniid - dir Cifar10_noniid_a0.3
-```
 
-### CIFAR-100
-
-```bash
 python generate_Cifar100.py noniid - dir Cifar100_noniid_a0.1
 python generate_Cifar100.py noniid - dir Cifar100_noniid_a0.3
-```
 
-### Fashion-MNIST
-
-```bash
 python generate_FashionMNIST.py noniid - dir FashionMNIST_noniid_a0.1
 python generate_FashionMNIST.py noniid - dir FashionMNIST_noniid_a0.3
-```
 
-Then return to the project root:
-
-```bash
 cd ..
 ```
 
-The main experiments use Dirichlet label-skew partitions with concentration parameters:
+For Kvasir-v2, please use the provided Kvasir generation script and set the raw-data path according to your local dataset location.
 
-```text
-alpha = 0.1
-alpha = 0.3
-```
-
-A smaller alpha indicates stronger label-distribution heterogeneity.
-
----
+The main experiments use Dirichlet label-skew partitions with concentration parameters `alpha = 0.1` and `alpha = 0.3`. A smaller alpha indicates stronger label-distribution heterogeneity.
 
 ## 6. Quick Start
 
 ### FedDHP on CIFAR-10 / Dir(0.1) / ResNet10
 
 ```bash
-bash scripts/feddhp/run_table1_cifar10_dir01_resnet10.sh
+bash scripts/run_feddhp_cifar10.sh
 ```
 
 Equivalent command:
@@ -218,7 +210,7 @@ This is a representative main-table setting for FedDHP on CIFAR-10 under Dirichl
 ## 7. Strong Augmentation Example
 
 ```bash
-bash scripts/feddhp/run_strong_aug_cifar10_dir01.sh
+bash scripts/run_feddhp_strong_aug.sh
 ```
 
 Equivalent command:
@@ -250,15 +242,27 @@ python main.py \
   --cifar_cutout_p 0.5 \
   -go aug_crop_hflip_cutout
 ```
+````markdown
+### Augmentation Options
 
----
+FedDHP uses asymmetric views for the two branches: the personalized teacher branch receives a stable view, while the generic student branch can receive a perturbed view. This design follows the role assignment in the paper, where stable views preserve local supervision and perturbed views encourage the generic branch to learn more transferable representations.
+
+Common student-side augmentation options include:
+
+```text
+hflip
+hflip_cutout
+crop_hflip
+crop_hflip_cutout
+crop_hflip_randaug
+hflip_colorjitter
 
 ## 8. Ablation Example
 
 ### Without strong augmentation
 
 ```bash
-bash scripts/feddhp/run_ablation_no_strong_aug_cifar10_dir01.sh
+bash scripts/run_feddhp_ablation.sh
 ```
 
 Equivalent command:
@@ -294,7 +298,7 @@ python main.py \
 The main experiments follow the settings below:
 
 ```text
-Datasets: CIFAR-10, CIFAR-100, Fashion-MNIST
+Datasets: CIFAR-10, CIFAR-100, Fashion-MNIST, Kvasir-v2
 Partition: Dirichlet label skew
 Dirichlet alpha: 0.1 and 0.3
 Number of clients: 20
@@ -365,13 +369,14 @@ The baseline implementations are inherited from or adapted based on PFLlib. In t
 - communication-cost calculation;
 - unified reporting under the same experimental protocol.
 
-Representative baseline scripts are provided under:
+```markdown
+A representative baseline script is provided as:
 
-```text
-scripts/baselines/
+```bash
+bash scripts/run_baseline_example.sh
 ```
-
-Additional baseline scripts can be added following the same command format.
+Additional baselines can be run by replacing `-algo` with the corresponding method name and using method-specific hyperparameters.
+```
 
 ---
 
@@ -385,11 +390,13 @@ The aggregated global model is evaluated on the unified global test set.
 
 ### P-FL: Personalized Evaluation
 
-The deployable client-side model is evaluated on each client's local test set. The final result is reported as the test-sample-weighted average accuracy across clients.
+```markdown
+### Classifier-level Fine-tuning for P-FL
 
-For applicable methods, classifier-level fine-tuning is applied before P-FL evaluation. For methods with native personalized evaluation pipelines, we follow their corresponding evaluation protocol.
+For applicable methods, we apply classifier-level fine-tuning before P-FL evaluation. During this step, the feature extractor is kept fixed and only the classifier/prediction head is adapted on the client's local training data. This protocol follows the P-FL evaluation setting used in the paper and is intended to measure deployable client-side personalization under the same evaluation pipeline.
 
----
+For methods with native personalized predictors, we follow their corresponding personalized evaluation protocol and report the local test-set performance.
+```
 
 ## 12. Communication Cost
 
@@ -432,13 +439,21 @@ The provided scripts are intended to reproduce the main experimental settings an
 
 ---
 
-## 14. Notes on Unused PFLlib Algorithms
+## 14. Notes on Supported Algorithms
 
-PFLlib supports many FL and pFL algorithms. This repository focuses on FedDHP and the baselines used in the FedDHP paper.
+This release focuses on FedDHP and the nine baselines used in the paper:
 
-Some inherited PFLlib modules may remain in the codebase to preserve compatibility with the original framework. However, only the methods listed in the baseline section are used for the main comparisons in our paper.
+- FedAvg
+- FedProx
+- FedGen
+- FedPAC
+- pFedMe
+- FedBABU
+- FedKD
+- FedRoD
+- GPFL
 
----
+Other PFLlib algorithms are not included in this release. Please refer to the original PFLlib repository for the full benchmark library.
 
 ## 15. License
 

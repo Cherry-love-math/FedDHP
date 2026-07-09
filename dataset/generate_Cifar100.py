@@ -14,10 +14,7 @@ random.seed(1)
 np.random.seed(1)
 num_clients = 20
 # dir_path 会在 main 中根据参数动态设置
-
-# --------------------------------------------------------------------------
 # 新增功能：验证函数 (防止 Global Test 数据泄露到客户端)
-# --------------------------------------------------------------------------
 def _load_xy_from_npz(npz_path):
     z = np.load(npz_path, allow_pickle=True)
     if "x" in z and "y" in z:
@@ -63,9 +60,7 @@ def verify_no_global_leak(dataset_dir):
     else:
         print(f"[LeakCheck][BAD] leaked_samples={leak_total}")
 
-# --------------------------------------------------------------------------
 # 数据生成主函数
-# --------------------------------------------------------------------------
 def generate_dataset(dir_path, num_clients, niid, balance, partition):
     if not os.path.exists(dir_path):
         os.makedirs(dir_path)
@@ -99,9 +94,8 @@ def generate_dataset(dir_path, num_clients, niid, balance, partition):
     for _, test_data in enumerate(testloader, 0):
         testset.data, testset.targets = test_data
 
-    # -------------------------------------------------------------------
     # 新增功能 1: 保存全局测试集 global_test.npz
-    # -------------------------------------------------------------------
+
     global_test_path = os.path.join(dir_path, "global_test.npz")
     
     # 提取测试集数据并转为 numpy
@@ -115,9 +109,7 @@ def generate_dataset(dir_path, num_clients, niid, balance, partition):
     np.savez_compressed(global_test_path, x=x_global, y=y_global)
     print(f"[GlobalTest] saved to: {global_test_path}, x={x_global.shape}, y={y_global.shape}")
 
-    # -------------------------------------------------------------------
     # 新增功能 2: 保存全局校准集 global_calib.npz (从 Train 中采样)
-    # -------------------------------------------------------------------
     global_calib_path = os.path.join(dir_path, "global_calib.npz")
     N_CALIB = 2000 # 可以根据 CIFAR-100 总量适当调整，这里保持 2000
 
@@ -133,13 +125,10 @@ def generate_dataset(dir_path, num_clients, niid, balance, partition):
     np.savez_compressed(global_calib_path, x=x_calib, y=y_calib)
     print(f"[GlobalCalib] saved to: {global_calib_path}, x={x_calib.shape}, y={y_calib.shape}")
 
-    # -------------------------------------------------------------------
     # 构建客户端数据集 (Dataset Partitioning)
-    # -------------------------------------------------------------------
     dataset_image = []
     dataset_label = []
 
-    # [关键修改] 
     # 为了防止数据泄露并匹配 Cifar10 代码逻辑，只将 Trainset 分给客户端。
     # 原始 Cifar100 代码合并了 Testset，这里注释掉以保持一致性。
     dataset_image.extend(trainset.data.cpu().detach().numpy())
