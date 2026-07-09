@@ -374,7 +374,6 @@ The paper compares FedDHP with nine representative baselines.
 - FedRoD
 - GPFL
 
-````markdown
 The baseline implementations are inherited from or adapted based on PFLlib. In this repository, we modified the evaluation pipeline to support:
 
 - G-FL evaluation;
@@ -387,7 +386,7 @@ A representative baseline script is provided as:
 
 ```bash
 bash scripts/run_baseline_example.sh
-
+``` 
 ---
 
 ## 11. Evaluation Protocol
@@ -400,7 +399,7 @@ The aggregated global model is evaluated on the unified global test set.
 
 ### P-FL: Personalized Evaluation
 
-```markdown
+
 ### Classifier-level Fine-tuning for P-FL
 
 For applicable methods, we apply classifier-level fine-tuning before P-FL evaluation. During this step, the feature extractor is kept fixed and only the classifier/prediction head is adapted on the client's local training data. This protocol follows the P-FL evaluation setting used in the paper and is intended to measure deployable client-side personalization under the same evaluation pipeline.
