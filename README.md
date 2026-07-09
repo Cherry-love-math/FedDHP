@@ -374,6 +374,7 @@ The paper compares FedDHP with nine representative baselines.
 - FedRoD
 - GPFL
 
+````markdown
 The baseline implementations are inherited from or adapted based on PFLlib. In this repository, we modified the evaluation pipeline to support:
 
 - G-FL evaluation;
@@ -382,14 +383,10 @@ The baseline implementations are inherited from or adapted based on PFLlib. In t
 - communication-cost calculation;
 - unified reporting under the same experimental protocol.
 
-```markdown
 A representative baseline script is provided as:
 
 ```bash
 bash scripts/run_baseline_example.sh
-```
-Additional baselines can be run by replacing `-algo` with the corresponding method name and using method-specific hyperparameters.
-```
 
 ---
 
